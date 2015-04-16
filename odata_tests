@@ -1,0 +1,78 @@
+#!/usr/bin/env escript
+%% -*- erlang -*-
+%%! -smp enable -sname odata_tests -mnesia debug verbose
+main([String]) ->
+    try
+        inets:start(), %% Start up inets so we can make services calls
+        run_testcases(String)
+    catch
+        _:Reason ->
+            io:format("Reason:~p~n",[Reason]),
+            usage()
+    end;
+main(_) ->
+    usage().
+
+usage() ->
+    io:format("usage: odata_testcase script has halted to due to an error or no arguments supplied"),
+    halt(1).
+
+%% Read in the test cases
+run_testcases(FileName) ->
+   {ok, Stream} = file:open(FileName, read),
+   TestCases = acc_testcase(io:get_line(Stream,''),Stream,[]),
+   Self = self(),
+   ResultPids = [ spawn_link(fun() -> Self ! run_test_case(TC) end)  || TC <- TestCases],
+   Results = [receive {TN,PF,_Res,RC} -> {TN,PF,RC} end || _X <- ResultPids], 
+   lists:foreach(fun(R) -> print_test_case_result(R)  end, lists:reverse(Results)). 
+		       
+   
+
+%% Print Results
+print_test_case_result(X) ->
+  {TestName,PassOrFail,ResponseCode} = X,
+  io:format("~p ~p ~p ~n",[TestName,PassOrFail,ResponseCode]).
+
+
+%% Accumulate TestCases
+acc_testcase(Line,FS,Acc) when Line == eof -> 
+ file:close(FS),
+ Acc;
+acc_testcase(Line,FS,Acc) when Line =:= "\n" -> acc_testcase(io:get_line(FS,''),FS,Acc);
+acc_testcase(Line,FS,Acc) -> acc_testcase(io:get_line(FS,''),FS,[line_to_testcase(Line)|Acc]).
+
+%% Map Line to TestCase
+line_to_testcase(Line) ->
+   TestCase = string:tokens(Line,"\t"),
+   [TestCaseName|[Method|[Url|[RCode|Body]]]] = TestCase,
+   {TestCaseName,request_type(Method),Url,RCode,Body}.
+
+%% Map request method to atom
+request_type(Type) when Type == "GET" -> get;
+request_type(Type) when Type == "POST" -> post;
+request_type(Type) when Type == "PUT" -> put;
+request_type(_Type) -> get. %% default to GET         
+
+
+%% Run Test Case & Print Results
+run_test_case({TestName,Method,Url,RCode,Body}) ->
+  try
+     case Method == get of
+	 true ->
+                {ok,{{_Version,ResponseCode,_Reason},Headers,Data}} = httpc:request(Method,{Url,[{"Authorization","Basic " ++ binary_to_list(base64:encode("username:pwd"))},{"Content-Type","application/json"},{"Host","host-name-here"}]},[                   ],[{headers_as_is, true}]),
+                case list_to_integer(RCode) == ResponseCode of
+                   true ->  {TestName,"Passed",Data,ResponseCode};
+                   false -> {TestName,"Failed",Data,ResponseCode}
+                end;
+         false -> 
+                Content_Length = integer_to_list(string:len(lists:flatten(Body))),
+                {ok,{{_Version,RC,_Reason},Headers,Data}} = httpc:request(Method,{Url,[{"Authorization","Basic " ++ binary_to_list(base64:encode("username:pwd"))},{"Content-Type","application/json"},{"Host","host-name-here"},{"Content-Length",Content_Length}],"application/json",Body},[],[{headers_as_is, true}]),
+                case list_to_integer(RCode) == RC of
+                   true ->  {TestName,"Passed",Data,RC};
+                   false -> {TestName,"Failed",Data,RC}
+                end
+     end
+  catch
+     _:_ -> {TestName,"Failed","TestCase request failed"}
+
+  end.
