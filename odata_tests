@@ -59,7 +59,7 @@ run_test_case({TestName,Method,Url,RCode,Body}) ->
   try
      case Method == get of
 	 true ->
-                {ok,{{_Version,ResponseCode,_Reason},Headers,Data}} = httpc:request(Method,{Url,[{"Authorization","Basic " ++ binary_to_list(base64:encode("username:pwd"))},{"Content-Type","application/json"},{"Host","host-name-here"}]},[                   ],[{headers_as_is, true}]),
+                {ok,{{_Version,ResponseCode,_Reason},Headers,Data}} = httpc:request(Method,{Url,[{"Authorization","Basic " ++ binary_to_list(base64:encode("username:pwd"))},{"Content-Type","application/json"},{"Host","host-name-here"}]},[],[{headers_as_is, true}]),
                 case list_to_integer(RCode) == ResponseCode of
                    true ->  {TestName,"Passed",Data,ResponseCode};
                    false -> {TestName,"Failed",Data,ResponseCode}
